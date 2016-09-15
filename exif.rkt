@@ -436,7 +436,7 @@
     (else value)))
 
 (define (interpret-value name value)
-  (let ((interpret (hash-ref *value-interpreters* name)))
+  (let ((interpret (hash-ref *value-interpreters* name #f)))
     (if interpret
         (interpret value)
         value)))
