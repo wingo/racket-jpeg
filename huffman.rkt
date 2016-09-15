@@ -148,7 +148,6 @@
     (if (< len (bytes-length bv))
         (subbytes bv 0 len)
         bv))
-  (println freqs)
   (call-with-values (lambda ()
                       (let ((copy (make-vector 257)))
                         (vector-copy! copy 0 freqs)

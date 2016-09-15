@@ -62,16 +62,16 @@
   (frame misc-segments mcu-array))
 
 (struct frame
-  (marker precision y x components samp-x samp-y))
+  (marker precision y x components samp-x samp-y) #:transparent)
 
 (struct component
-  (id index samp-x samp-y q-table))
+  (id index samp-x samp-y q-table) #:transparent)
 
 (struct misc
   (marker bytes))
 
 (struct params
-  (q-tables dc-tables ac-tables restart-interval misc-segments))
+  (q-tables dc-tables ac-tables restart-interval misc-segments) #:transparent)
 
 (module+ test
   (require rackunit)
@@ -592,31 +592,30 @@
   (match jpeg
     ((jfif frame misc mcu-array)
      (let* ((q-tables (q-tables-for-mcu-array mcu-array))
-            (scan-components (pk 'scan-components (compute-scan-components frame q-tables))))
+            (scan-components (compute-scan-components frame q-tables)))
        (values
         q-tables
-        (array-map
-         (lambda (mcu)
-           (vector-map
-            (lambda (blocks scan-component)
-              (match scan-component
-                ((vector component prev-dc q-table dc-table ac-table)
-                 (call-with-values
-                     (lambda ()
-                       (for/fold ((dc prev-dc) (out '()))
-                           ((block (in-array blocks)))
-                         (call-with-values
-                             (lambda ()
-                               (compute-block-codes block q-table dc))
-                           (lambda (dc codes)
-                             (values dc (cons codes out))))))
-                   (lambda (dc out)
-                     ;; good up to here.
-                     (vector-set! scan-component 1 dc)
-                     (reverse out))))))
-            mcu
-            scan-components))
-         mcu-array))))))
+        (for/array #:shape (array-shape mcu-array)
+                   ((mcu (in-array mcu-array)))
+          (vector-map
+           (lambda (blocks scan-component)
+             (match scan-component
+               ((vector component prev-dc q-table dc-table ac-table)
+                (call-with-values
+                    (lambda ()
+                      (for/fold ((dc prev-dc) (out '()))
+                          ((block (in-array blocks)))
+                        (call-with-values
+                            (lambda ()
+                              (compute-block-codes block q-table dc))
+                          (lambda (dc codes)
+                            (values dc (cons codes out))))))
+                  (lambda (dc out)
+                    ;; good up to here.
+                    (vector-set! scan-component 1 dc)
+                    (reverse out))))))
+           mcu
+           scan-components)))))))
 
 (define (compute-code-frequencies codes)
   (let ((dc-freqs (vector (make-vector 256 0) (make-vector 256 0) #f #f))
@@ -639,15 +638,7 @@
             (accumulate-frequencies codes idx)))))
     (vector dc-freqs ac-freqs)))
 
-(define (pk . args)
-  (display ";;; " (current-error-port))
-  (print args (current-error-port))
-  (newline (current-error-port))
-  (match args
-    ((list head ... tail) tail)))
-
 (define (compute-huffman-code-tables dc-and-ac-freqs)
-  (pk 'dc-and-ac-freqs dc-and-ac-freqs)
   (vector-map
    (lambda (freqs-v)
      (vector-map
@@ -739,8 +730,6 @@
   (let ((port (make-bit-port port)))
     (match huffman-tables
       ((vector dc-tables ac-tables)
-       ;(println dc-tables)
-       ;(println ac-tables)
        (define (write-code code table)
          (match table
            ((vector size-counts size-offsets
@@ -781,7 +770,6 @@
       ((jfif frame misc mcu-array)
        (call-with-values (lambda () (compute-code-sequences jpeg))
          (lambda (q-tables codes)
-           (pk 'q-tables q-tables)
            (let* ((frequencies (compute-code-frequencies codes))
                   (huffman-tables (compute-huffman-code-tables frequencies)))
              (write-soi port)
