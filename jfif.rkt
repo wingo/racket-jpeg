@@ -183,10 +183,6 @@
         (vector-set! q-tables Tq table)
         (lp remaining)))))
 
-;; FIXME: temporary definition until we import the huffman module
-(define (make-huffman-table size-counts values)
-  values)
-
 (define (read-huffman-table port len dc-tables ac-tables)
   (unless (> len 2)
     (error "Invalid DHT segment length" len))
@@ -416,23 +412,22 @@
       ((vector component prev-dc q-table dc-table ac-table)
        (vector-set! scan-component 1
                     (for/fold ((dc prev-dc))
-                        ((block (vector-ref mcu (component-index component))))
+                        ((block (in-array (vector-ref mcu (component-index component)))))
                       (read-block bit-port block
                                   dc q-table dc-table ac-table)))))))
 
 (define (read-dct-scan bit-port scan-components dest Ss Se Ah Al)
   (unless (and (= Ss 0) (= Se 63) (= Ah 0) (= Al 0))
     (error "progressive frame reading not yet supported"))
-  (for ((mcu dest))
+  (for ((mcu (in-array dest)))
     (read-mcu bit-port scan-components mcu)))
 
 (define (read-scan port frame params dest)
   (define (find-component id)
-    (let ((components (frame-components frame)))
-      (vector-ref components
-                  (or (for/or ((component components))
-                        (and (= (component-id component) id)))
-                      (error "No component found with id" id)))))
+    (or (for/or ((component (frame-components frame)))
+          (and (= (component-id component) id)
+               component))
+        (error "No component found with id" id)))
   (unless (frame-dct? frame) (error "DCT frame expected" frame))
   (unless (frame-huffman-coded? frame) (error "Huffman coding expected" frame))
   (let ((len (read-u16 port)))
