@@ -21,7 +21,8 @@
 ;;
 ;;; Code:
 
-;; (require jpeg/array jpeg/bit-ports jpeg/huffman jpeg/pixbufs)
+;; (require jpeg/array jpeg/pixbufs)
+(require jpeg/bit-ports jpeg/huffman)
 
 (provide jfif jfif? jfif-frame jfif-misc-segments jfif-mcu-array
 
@@ -41,7 +42,9 @@
 
          misc misc? misc-marker misc-bytes
 
-         read-jpeg write-jpeg)
+         read-jpeg
+         ;write-jpeg
+         )
 
 
 ;; See http://www.w3.org/Graphics/JPEG/itu-t81.pdf for ITU
