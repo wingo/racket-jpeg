@@ -21,8 +21,6 @@
 ;;
 ;;; Code:
 
-(require rnrs/bytevectors-6
-         )
 ;; (require jpeg/array jpeg/bit-ports jpeg/huffman jpeg/pixbufs)
 
 (provide jfif jfif? jfif-frame jfif-misc-segments jfif-mcu-array
@@ -72,6 +70,9 @@
 (struct params
   (q-tables dc-tables ac-tables restart-interval misc-segments))
 
+(module+ test
+  (require rackunit)
+  #t)
 
 
 
@@ -108,7 +109,7 @@
 
 (define (read-bytes port n)
   (let ((bytes (read-bytes n port)))
-    (unless (= (bytevector-length bytes) n)
+    (unless (= (bytes-length bytes) n)
       (error "EOF while reading bytes" n))
     bytes))
 
@@ -158,7 +159,7 @@
              (Tq (bitwise-and PT #xf))
              (table (make-vector 64 #f))
              (remaining (- remaining (+ 1 (* 64 (add1 Pq))))))
-        (define (zigzag->normal idx) (bytevector-u8-ref normal-order idx))
+        (define (zigzag->normal idx) (bytes-ref normal-order idx))
         (unless (< Tq 4)
           (error "Bad Tq value" Tq))
         (when (negative? remaining)
@@ -194,7 +195,8 @@
              (Tc (arithmetic-shift T -4))
              (Th (bitwise-and T #xf))
              (size-counts (read-bytes port 16))
-             (count (foldl + 0 (bytevector->u8-list size-counts)))
+             (count (for/fold ((sum 0)) ((count size-counts))
+                      (+ sum count)))
              (remaining (- remaining (+ 17 count))))
         (unless (< Th 4)
           (error "Bad Th value" Th))
@@ -377,7 +379,7 @@
 ;; return current dc
 (define (read-block bit-port block prev-dc-q q-table dc-table ac-table)
   (define (record! index quantized-coefficient)
-    (let* ((index (bytevector-u8-ref normal-order index))
+    (let* ((index (bytes-ref normal-order index))
            (q (vector-ref q-table index)))
       (vector-set! block index (* quantized-coefficient q))))
   ;; First, read DC coefficient.
@@ -496,8 +498,8 @@
         (read-jpeg port
                    #:with-body? with-body?
                    #:with-misc-sections? with-misc-sections?))))
-   ((bytevector? port)
-    (read-jpeg (open-bytevector-input-port port)
+   ((bytes? port)
+    (read-jpeg (open-input-bytes port)
                #:with-body? with-body?
                #:with-misc-sections? with-misc-sections?))
    (else
@@ -524,6 +526,7 @@
                   (else
                    (error "Unexpected marker" marker))))))))))))
 
+#;
 (define (q-tables-for-mcu-array mcu-array #:max-value (max-value 255))
   (define (gcd* coeff q) (gcd (abs coeff) q))
   (define (meet-tables coeffs q)
@@ -552,10 +555,11 @@
       (vector (array-map-values fixup luma-q) (array-map-values fixup chroma-q)
               #f #f))))
 
+#;
 (define (compute-block-codes block q-table prev-dc)
   (let ((zzq (vector-unfold
               (lambda (i)
-                (let ((i (bytevector-u8-ref normal-order i)))
+                (let ((i (bytes-ref normal-order i)))
                   (/ (vector-ref block i) (vector-ref q-table i))))
               64)))
     (define (bit-count x)
@@ -587,6 +591,7 @@
               (cons (encode-dc (- dc prev-dc))
                     (reverse (encode-next 1 '())))))))
 
+#;
 (define (compute-code-sequences jpeg)
   (define (compute-scan-components frame q-tables)
     (array-map-values
@@ -624,6 +629,7 @@
             scan-components))
          mcu-array))))))
 
+#;
 (define (compute-code-frequencies codes)
   (let ((dc-freqs (vector (make-vector 256 0) (make-vector 256 0) #f #f))
         (ac-freqs (vector (make-vector 256 0) (make-vector 256 0) #f #f)))
@@ -650,6 +656,7 @@
      codes)
     (vector dc-freqs ac-freqs)))
 
+#;
 (define (compute-huffman-code-tables dc-and-ac-freqs)
   (array-map-values
    (lambda (freqs-v)
@@ -659,18 +666,22 @@
       freqs-v))
    dc-and-ac-freqs))
 
+#;
 (define (write-short u16 port)
   (write-byte (arithmetic-shift u16 -8) port)
   (write-byte (bitwise-and u16 #xff) port))
 
+#;
 (define (write-soi port)
   (write-short #xffd8 port)) ; SOI.
 
+#;
 (define (write-misc-segment port misc)
   (write-short (misc-marker misc) port)
-  (write-short (+ 2 (bytevector-length (misc-bytes misc))) port)
+  (write-short (+ 2 (bytes-length (misc-bytes misc))) port)
   (write-bytes (misc-bytes misc) port))
 
+#;
 (define (write-baseline-frame port frame)
   (write-short #xffc0 port) ; SOF0.
   (let ((len (+ 8 (* (frame-component-count frame) 3))))
@@ -687,6 +698,7 @@
      (write-byte (component-q-table component) port))
    (frame-components frame)))
 
+#;
 (define (write-q-tables port q-tables)
   (vector-for-each
    (lambda (i table)
@@ -699,11 +711,12 @@
          (write-byte (bitwise-ior (arithmetic-shift P 4) T) port))
        (let lp ((i 0))
          (when (< i 64)
-           (let ((i (bytevector-u8-ref normal-order i)))
+           (let ((i (bytes-ref normal-order i)))
              (write-byte (vector-ref table i) port))
            (lp (add1 i))))))
    q-tables))
 
+#;
 (define (write-huffman-tables port huffman-tables)
   (define (write-table k table Tc)
     (match table
@@ -711,7 +724,7 @@
       ((vector size-counts size-offsets
          values value-indexes sizes codes max-codes)
        (write-short #xffc4 port)            ; DHT.
-       (let ((len (+ 19 (bytevector-length values))))
+       (let ((len (+ 19 (bytes-length values))))
          (write-short len port))
        (write-byte (bitwise-ior (arithmetic-shift Tc 4) k) port)
        (write-bytes size-counts port)
@@ -723,6 +736,7 @@
      (vector-for-each (lambda (k table) (write-table k table 1))
                       ac-tables))))
 
+#;
 (define (write-baseline-scan-header port frame)
   (write-short #xffda port) ; SOS.
   (let ((len (+ 6 (* (frame-component-count frame) 2))))
@@ -743,6 +757,7 @@
     (write-byte Se port)
     (write-byte (bitwise-ior (arithmetic-shift Ah 4) Al) port)))
 
+#;
 (define (write-baseline-entropy-coded-data port codes huffman-tables)
   (let ((port (make-bit-port port)))
     (match huffman-tables
@@ -756,7 +771,7 @@
                    (ssss (bitwise-and code #xf))
                    (code-index (vector-ref value-indexes u8))
                    (code (vector-ref codes code-index))
-                   (size (bytevector-u8-ref sizes code-index)))
+                   (size (bytes-ref sizes code-index)))
               (put-bits port code size)
               (unless (zero? ssss)
                 (put-bits port diff ssss))))))
@@ -780,9 +795,11 @@
         codes)
        (flush-bits port)))))
 
+#;
 (define (write-eoi port)
   (write-short #xffd9 port)) ; EOI.
 
+#;
 (define (write-jpeg port jpeg)
   (cond
    ((string? port)
