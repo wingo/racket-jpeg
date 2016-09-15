@@ -21,7 +21,6 @@
 ;;
 ;;; Code:
 
-;; (require jpeg/pixbufs)
 (require math/array jpeg/bit-ports jpeg/huffman)
 
 (provide jfif jfif? jfif-frame jfif-misc-segments jfif-mcu-array
@@ -43,8 +42,7 @@
          misc misc? misc-marker misc-bytes
 
          read-jfif
-         ;write-jfif
-         )
+         write-jfif)
 
 
 ;; See http://www.w3.org/Graphics/JPEG/itu-t81.pdf for ITU
@@ -59,25 +57,24 @@
 ;; SHEADER := SOS LEN NCOMPONENTS SCOMP0 SCOMP1 ... SS SE A
 
 (struct jfif
-  (frame misc-segments mcu-array))
+  (frame misc-segments mcu-array)
+  #:transparent)
 
 (struct frame
-  (marker precision y x components samp-x samp-y) #:transparent)
+  (marker precision y x components samp-x samp-y)
+  #:transparent)
 
 (struct component
-  (id index samp-x samp-y q-table) #:transparent)
+  (id index samp-x samp-y q-table)
+  #:transparent)
 
 (struct misc
-  (marker bytes))
+  (marker bytes)
+  #:transparent)
 
 (struct params
-  (q-tables dc-tables ac-tables restart-interval misc-segments) #:transparent)
-
-(module+ test
-  (require rackunit)
-  #t)
-
-
+  (q-tables dc-tables ac-tables restart-interval misc-segments)
+  #:transparent)
 
 (define (read-marker port)
   (let ((u8 (read-byte port)))

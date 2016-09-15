@@ -36,7 +36,6 @@
 (define jpeg->planar-image #f)
 (define planar-image->jpeg #f)
 (define make-interleaved-image #f)
-(define write-jfif #f)
 
 (define (jpeg-dimensions jpeg)
   (let* ((jfif (if (jfif? jpeg)
@@ -142,4 +141,12 @@
 
   (check-eqv? width expected-width)
   (check-eqv? height expected-height)
-  (check-equal? exif expected-exif))
+  (check-equal? exif expected-exif)
+
+  (let* ((j1 (read-jpeg test-file-name))
+         (j2 (call-with-input-bytes
+                 (call-with-output-bytes
+                   (lambda (port) (write-jpeg port j1)))
+               (lambda (port)
+                 (read-jpeg port)))))
+    (check-equal? j1 j2)))
