@@ -21,7 +21,7 @@
 ;;
 ;;; Code:
 
-;; (require jpeg/array jpeg/pixbufs)
+;; (require jpeg/pixbufs)
 (require math/array jpeg/bit-ports jpeg/huffman)
 
 (provide jfif jfif? jfif-frame jfif-misc-segments jfif-mcu-array
@@ -517,25 +517,27 @@
                   (else
                    (error "Unexpected marker" marker))))))))))))
 
-#;
 (define (q-tables-for-mcu-array mcu-array #:max-value (max-value 255))
   (define (gcd* coeff q) (gcd (abs coeff) q))
   (define (meet-tables coeffs q)
     (if q
-        (array-map-values gcd* coeffs q)
-        (array-map-values abs coeffs)))
+        (vector-map gcd* coeffs q)
+        (vector-map abs coeffs)))
+  (define (meet-mcu-blocks sequence q)
+    (for/fold ((q q)) ((coeffs sequence))
+      (meet-tables coeffs q)))
   (call-with-values
       (lambda ()
-        (array-fold-values
-         (lambda (mcu luma-q chroma-q)
-           (match mcu
-             ((vector y)
-              (values (array-fold-values meet-tables y luma-q) chroma-q))
-             ((vector y u v)
-              (values (array-fold-values meet-tables y luma-q)
-                      (let ((q (array-fold-values meet-tables u chroma-q)))
-                        (array-fold-values meet-tables v q))))))
-         mcu-array #f #f))
+        (for/fold ((luma-q #f) (chroma-q #f)) ((mcu (in-array mcu-array)))
+          (match mcu
+            ((vector y)
+             (values (meet-mcu-blocks (in-array y) luma-q)
+                     chroma-q))
+            ((vector y u v)
+             (values (meet-mcu-blocks (in-array y) luma-q)
+                     (meet-mcu-blocks (sequence-append (in-array u)
+                                                       (in-array v))
+                                      chroma-q))))))
     (lambda (luma-q chroma-q)
       (define (fixup q)
         (cond
@@ -543,16 +545,13 @@
          ((<= q max-value) q)
          ((zero? (remainder q 2)) (fixup (/ q 2)))
          (else (error "q out of range" q))))
-      (vector (array-map-values fixup luma-q) (array-map-values fixup chroma-q)
+      (vector (vector-map fixup luma-q) (vector-map fixup chroma-q)
               #f #f))))
 
-#;
 (define (compute-block-codes block q-table prev-dc)
-  (let ((zzq (vector-unfold
-              (lambda (i)
-                (let ((i (bytes-ref normal-order i)))
-                  (/ (vector-ref block i) (vector-ref q-table i))))
-              64)))
+  (let ((zzq (for/vector ((i (in-range 64)))
+               (let ((i (bytes-ref normal-order i)))
+                 (/ (vector-ref block i) (vector-ref q-table i))))))
     (define (bit-count x)
       (cond
        ((negative? x) (let lp ((n 1)) (if (< (arithmetic-shift -1 n) x) n (lp (add1 n)))))
@@ -582,10 +581,9 @@
               (cons (encode-dc (- dc prev-dc))
                     (reverse (encode-next 1 '())))))))
 
-#;
 (define (compute-code-sequences jpeg)
   (define (compute-scan-components frame q-tables)
-    (array-map-values
+    (vector-map
      (lambda (component)
        (let ((q-table (vector-ref q-tables (component-q-table component))))
          ;; We don't know the dc and ac huffman tables yet.
@@ -594,33 +592,32 @@
   (match jpeg
     ((jfif frame misc mcu-array)
      (let* ((q-tables (q-tables-for-mcu-array mcu-array))
-            (scan-components (compute-scan-components frame q-tables)))
+            (scan-components (pk 'scan-components (compute-scan-components frame q-tables))))
        (values
         q-tables
-        (array-map-values
+        (array-map
          (lambda (mcu)
-           (array-map-values
+           (vector-map
             (lambda (blocks scan-component)
               (match scan-component
                 ((vector component prev-dc q-table dc-table ac-table)
                  (call-with-values
                      (lambda ()
-                       (array-fold-values
-                        (lambda (block dc out)
-                          (call-with-values
-                              (lambda ()
-                                (compute-block-codes block q-table dc))
-                            (lambda (dc codes)
-                              (values dc (cons codes out)))))
-                        blocks prev-dc '()))
+                       (for/fold ((dc prev-dc) (out '()))
+                           ((block (in-array blocks)))
+                         (call-with-values
+                             (lambda ()
+                               (compute-block-codes block q-table dc))
+                           (lambda (dc codes)
+                             (values dc (cons codes out))))))
                    (lambda (dc out)
+                     ;; good up to here.
                      (vector-set! scan-component 1 dc)
                      (reverse out))))))
             mcu
             scan-components))
          mcu-array))))))
 
-#;
 (define (compute-code-frequencies codes)
   (let ((dc-freqs (vector (make-vector 256 0) (make-vector 256 0) #f #f))
         (ac-freqs (vector (make-vector 256 0) (make-vector 256 0) #f #f)))
@@ -631,48 +628,46 @@
       (let ((dc-freqs (vector-ref dc-freqs idx))
             (ac-freqs (vector-ref ac-freqs idx)))
         (match codes
-          ((dc . ac)
+          ((cons dc ac)
            (count! dc-freqs dc)
            (for-each (lambda (ac) (count! ac-freqs ac)) ac)))))
-    (array-for-each-value
-     (lambda (mcu)
-       (vector-for-each
-        (lambda (k blocks)
-          (for-each
-           (lambda (codes)
-             (let ((idx (if (zero? k) 0 1)))
-               (accumulate-frequencies codes idx)))
-           blocks))
-        mcu))
-     codes)
+    (for ((mcu (in-array codes)))
+      (for ((k (in-naturals))
+            (blocks (in-vector mcu)))
+        (for ((codes (in-list blocks)))
+          (let ((idx (if (zero? k) 0 1)))
+            (accumulate-frequencies codes idx)))))
     (vector dc-freqs ac-freqs)))
 
-#;
+(define (pk . args)
+  (display ";;; " (current-error-port))
+  (print args (current-error-port))
+  (newline (current-error-port))
+  (match args
+    ((list head ... tail) tail)))
+
 (define (compute-huffman-code-tables dc-and-ac-freqs)
-  (array-map-values
+  (pk 'dc-and-ac-freqs dc-and-ac-freqs)
+  (vector-map
    (lambda (freqs-v)
-     (array-map-values
+     (vector-map
       (lambda (freqs)
-        (and=> freqs compute-huffman-table-for-freqs))
+        (and freqs (compute-huffman-table-for-freqs freqs)))
       freqs-v))
    dc-and-ac-freqs))
 
-#;
 (define (write-short u16 port)
   (write-byte (arithmetic-shift u16 -8) port)
   (write-byte (bitwise-and u16 #xff) port))
 
-#;
 (define (write-soi port)
   (write-short #xffd8 port)) ; SOI.
 
-#;
 (define (write-misc-segment port misc)
   (write-short (misc-marker misc) port)
   (write-short (+ 2 (bytes-length (misc-bytes misc))) port)
   (write-bytes (misc-bytes misc) port))
 
-#;
 (define (write-baseline-frame port frame)
   (write-short #xffc0 port) ; SOF0.
   (let ((len (+ 8 (* (frame-component-count frame) 3))))
@@ -681,33 +676,28 @@
   (write-short (frame-y frame) port)
   (write-short (frame-x frame) port)
   (write-byte (frame-component-count frame) port)
-  (array-for-each-value
-   (lambda (component)
-     (write-byte (component-id component) port)
-     (write-byte (bitwise-ior (arithmetic-shift (component-samp-x component) 4)
-                          (component-samp-y component)) port)
-     (write-byte (component-q-table component) port))
-   (frame-components frame)))
+  (for ((component (in-vector (frame-components frame))))
+    (write-byte (component-id component) port)
+    (write-byte (bitwise-ior (arithmetic-shift (component-samp-x component) 4)
+                             (component-samp-y component)) port)
+    (write-byte (component-q-table component) port)))
 
-#;
 (define (write-q-tables port q-tables)
-  (vector-for-each
-   (lambda (i table)
-     (when table
-       (write-short #xffdb port) ; DQT.
-       (let ((len (+ 3 64)))
-         (write-short len port))
-       (let ((P 0)
-             (T i))
-         (write-byte (bitwise-ior (arithmetic-shift P 4) T) port))
-       (let lp ((i 0))
-         (when (< i 64)
-           (let ((i (bytes-ref normal-order i)))
-             (write-byte (vector-ref table i) port))
-           (lp (add1 i))))))
-   q-tables))
+  (for ((i (in-naturals))
+        (table (in-vector q-tables)))
+    (when table
+      (write-short #xffdb port) ; DQT.
+      (let ((len (+ 3 64)))
+        (write-short len port))
+      (let ((P 0)
+            (T i))
+        (write-byte (bitwise-ior (arithmetic-shift P 4) T) port))
+      (let lp ((i 0))
+        (when (< i 64)
+          (let ((i (bytes-ref normal-order i)))
+            (write-byte (vector-ref table i) port))
+          (lp (add1 i)))))))
 
-#;
 (define (write-huffman-tables port huffman-tables)
   (define (write-table k table Tc)
     (match table
@@ -722,24 +712,21 @@
        (write-bytes values port))))
   (match huffman-tables
     ((vector dc-tables ac-tables)
-     (vector-for-each (lambda (k table) (write-table k table 0))
-                      dc-tables)
-     (vector-for-each (lambda (k table) (write-table k table 1))
-                      ac-tables))))
+     (for ((k (in-naturals)) (table (in-vector dc-tables)))
+       (write-table k table 0))
+     (for ((k (in-naturals)) (table (in-vector ac-tables)))
+       (write-table k table 1)))))
 
-#;
 (define (write-baseline-scan-header port frame)
   (write-short #xffda port) ; SOS.
   (let ((len (+ 6 (* (frame-component-count frame) 2))))
     (write-short len port))
   (write-byte (frame-component-count frame) port)
-  (vector-for-each
-   (lambda (k component)
-     (let ((Td (if (zero? k) 0 1))
-           (Ta (if (zero? k) 0 1)))
-       (write-byte (component-id component) port)
-       (write-byte (bitwise-ior (arithmetic-shift Td 4) Ta) port)))
-   (frame-components frame))
+  (for ((k (in-naturals)) (component (in-vector (frame-components frame))))
+    (let ((Td (if (zero? k) 0 1))
+          (Ta (if (zero? k) 0 1)))
+      (write-byte (component-id component) port)
+      (write-byte (bitwise-ior (arithmetic-shift Td 4) Ta) port)))
   (let ((Ss 0)
         (Se 63)
         (Ah 0)
@@ -748,11 +735,12 @@
     (write-byte Se port)
     (write-byte (bitwise-ior (arithmetic-shift Ah 4) Al) port)))
 
-#;
 (define (write-baseline-entropy-coded-data port codes huffman-tables)
   (let ((port (make-bit-port port)))
     (match huffman-tables
       ((vector dc-tables ac-tables)
+       ;(println dc-tables)
+       ;(println ac-tables)
        (define (write-code code table)
          (match table
            ((vector size-counts size-offsets
@@ -763,44 +751,37 @@
                    (code-index (vector-ref value-indexes u8))
                    (code (vector-ref codes code-index))
                    (size (bytes-ref sizes code-index)))
-              (put-bits port code size)
+              (write-bits port code size)
               (unless (zero? ssss)
-                (put-bits port diff ssss))))))
+                (write-bits port diff ssss))))))
        (define (write-codes codes idx)
          (let ((dc-table (vector-ref dc-tables idx))
                (ac-table (vector-ref ac-tables idx)))
            (match codes
-             ((dc . ac)
+             ((cons dc ac)
               (write-code dc dc-table)
               (for-each (lambda (ac) (write-code ac ac-table)) ac)))))
-       (array-for-each-value
-        (lambda (mcu)
-          (vector-for-each
-           (lambda (k blocks)
-             (for-each
-              (lambda (codes)
-                (let ((idx (if (zero? k) 0 1)))
-                  (write-codes codes idx)))
-              blocks))
-           mcu))
-        codes)
+       (for ((mcu (in-array codes)))
+         (for ((k (in-naturals)) (blocks (in-vector mcu)))
+           (for ((codes (in-list blocks)))
+             (let ((idx (if (zero? k) 0 1)))
+               (write-codes codes idx)))))
        (flush-bits port)))))
 
-#;
 (define (write-eoi port)
   (write-short #xffd9 port)) ; EOI.
 
-#;
 (define (write-jfif port jpeg)
   (cond
    ((string? port)
     (call-with-output-file port
-      (lambda (port) (write-jpeg port jpeg))))
+      (lambda (port) (write-jfif port jpeg))))
    (else
     (match jpeg
       ((jfif frame misc mcu-array)
        (call-with-values (lambda () (compute-code-sequences jpeg))
          (lambda (q-tables codes)
+           (pk 'q-tables q-tables)
            (let* ((frequencies (compute-code-frequencies codes))
                   (huffman-tables (compute-huffman-code-tables frequencies)))
              (write-soi port)
