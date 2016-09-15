@@ -21,7 +21,7 @@
 ;;
 ;;; Code:
 
-;; (require jpeg/pixbufs)
+;; (require jpeg/array jpeg/pixbufs)
 (require math/array jpeg/bit-ports jpeg/huffman)
 
 (provide jfif jfif? jfif-frame jfif-misc-segments jfif-mcu-array
@@ -42,8 +42,8 @@
 
          misc misc? misc-marker misc-bytes
 
-         read-jpeg
-         ;write-jpeg
+         read-jfif
+         ;write-jfif
          )
 
 
@@ -110,7 +110,7 @@
       (error "EOF while reading two-byte value"))
     (bitwise-ior (arithmetic-shift msb 8) lsb)))
 
-(define (read-bytes port n)
+(define (read-bytes/exactly n port)
   (let ((bytes (read-bytes n port)))
     (unless (= (bytes-length bytes) n)
       (error "EOF while reading bytes" n))
@@ -197,7 +197,7 @@
       (let* ((T (read-u8 port))
              (Tc (arithmetic-shift T -4))
              (Th (bitwise-and T #xf))
-             (size-counts (read-bytes port 16))
+             (size-counts (read-bytes/exactly 16 port))
              (count (for/fold ((sum 0)) ((count size-counts))
                       (+ sum count)))
              (remaining (- remaining (+ 17 count))))
@@ -205,7 +205,7 @@
           (error "Bad Th value" Th))
         (when (negative? remaining)
           (error "Invalid DHT segment length" len))
-        (let* ((values (read-bytes port count))
+        (let* ((values (read-bytes/exactly count port))
                (table (make-huffman-table size-counts values)))
           (match Tc
             (0 (vector-set! dc-tables Th table))
@@ -252,7 +252,7 @@
                   (payload-len (- len 2)))
              (unless (>= payload-len 0)
                (error "Invalid comment/app segment length" marker len))
-             (let ((misc (misc marker (read-bytes port payload-len))))
+             (let ((misc (misc marker (read-bytes/exactly payload-len port))))
                (set! misc-segments (cons misc misc-segments))
                (lp))))
           (else
@@ -370,12 +370,14 @@
 (define (allocate-dct-matrix frame)
   (build-array
    (vector (frame-mcu-height frame) (frame-mcu-width frame))
-   (lambda (i j)
-     (for/vector ((component (frame-components frame)))
-       (build-array
-        (list (component-samp-y component) (component-samp-x component))
-        (lambda (i j)
-          (make-vector (* 8 8) 0)))))))
+   (match-lambda
+     ((vector i j)
+      (for/vector ((component (frame-components frame)))
+        (build-array
+         (vector (component-samp-y component) (component-samp-x component))
+         (match-lambda
+           ((vector i j)
+            (make-vector (* 8 8) 0)))))))))
 
 ;; return current dc
 (define (read-block bit-port block prev-dc-q q-table dc-table ac-table)
@@ -483,17 +485,17 @@
             (read-dct-scan bit-port scan-components dest Ss Se Ah Al))
            (else (error "Unsupported frame type" frame))))))))
 
-(define (read-jpeg port #:with-body? (with-body? #t)
+(define (read-jfif port #:with-body? (with-body? #t)
                    #:with-misc-sections? (with-misc-sections? #t))
   (cond
    ((string? port)
     (call-with-input-file port
       (lambda (port)
-        (read-jpeg port
+        (read-jfif port
                    #:with-body? with-body?
                    #:with-misc-sections? with-misc-sections?))))
    ((bytes? port)
-    (read-jpeg (open-input-bytes port)
+    (read-jfif (open-input-bytes port)
                #:with-body? with-body?
                #:with-misc-sections? with-misc-sections?))
    (else
@@ -794,7 +796,7 @@
   (write-short #xffd9 port)) ; EOI.
 
 #;
-(define (write-jpeg port jpeg)
+(define (write-jfif port jpeg)
   (cond
    ((string? port)
     (call-with-output-file port
@@ -814,3 +816,12 @@
              (write-baseline-scan-header port frame)
              (write-baseline-entropy-coded-data port codes huffman-tables)
              (write-eoi port)))))))))
+
+(module+ test
+  (require rackunit)
+  (define test-file-name "./test.jpg")
+  (define expected-width 500)
+  (define expected-height 375)
+  (define test-jfif (read-jfif test-file-name #:with-body? #f))
+  (check-eqv? (frame-x (jfif-frame test-jfif)) expected-width)
+  (check-eqv? (frame-y (jfif-frame test-jfif)) expected-height))

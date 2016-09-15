@@ -1,4 +1,52 @@
 #lang racket
+(provide )
 (module+ test
   (require rackunit)
-  (define ε 1e-10))
+  )
+(module+ tests
+  (require rackunit)
+  (define test-file-name "./test.jpg")
+  (define expected-width 500)
+  (define expected-height 375)
+  (define expected-exif
+    `((make . "CAMERA                   ")
+      (model . "DC2302                 ")
+      (x-resolution 72 . 1)
+      (y-resolution 72 . 1)
+      (resolution-unit . "Inches")
+      (software . "f-spot version 0.1.11")
+      (date-time . "2006:05:14 20:55:54")
+      (y-cb-cr-positioning . "Co-sited")
+      (exposure-time 1 . 198)
+      (f-number 971 . 100)
+      (photographic-sensitivity . 50)
+      (exif-version . ,(bytes 48 50 49 48))
+      (date-time-original . "2004:10:31 03:03:17")
+      (date-time-digitized . "2004:10:30 12:03:17")
+      (components-configuration . ,(bytes 1 2 3 0))
+      (shutter-speed-value 77 . 10)
+      (aperture-value 5 . 1)
+      (flash (fired? . #f)
+             (return-light . "Not available")
+             (mode . "Unknown")
+             (present? . #f)
+             (red-eye? . #f))
+      (user-comment . ,(bytes 65 83 67 73 73 0 0 0))
+      (flashpix-version . ,(bytes 48 49 48 48))
+      (color-space . "sRGB")
+      (pixel-x-dimension . 1600)
+      (pixel-y-dimension . 1200)
+      ;; This is an interoperability offset but because it is before the
+      ;; EXIF segment we don't visit it; otherwise we would be exposed to
+      ;; loop-like attacks.
+      (40965 . 508)))
+
+  (define-values (width height exif)
+    (jpeg-dimensions-and-exif test-file))
+
+  (unless (equal? width expected-width)
+    (error "not equal" width expected-width))
+  (unless (equal? height expected-height)
+    (error "not equal" height expected-height))
+  (unless (equal? exif expected-exif)
+    (error "not equal" exif expected-exif)))
