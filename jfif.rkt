@@ -21,8 +21,8 @@
 ;;
 ;;; Code:
 
-;; (require jpeg/array jpeg/pixbufs)
-(require jpeg/bit-ports jpeg/huffman)
+;; (require jpeg/pixbufs)
+(require math/array jpeg/bit-ports jpeg/huffman)
 
 (provide jfif jfif? jfif-frame jfif-misc-segments jfif-mcu-array
 
@@ -58,7 +58,7 @@
 ;; MISC := (DQT | DHT | DAC | DRI | COM | APP) LEN payload...
 ;; SHEADER := SOS LEN NCOMPONENTS SCOMP0 SCOMP1 ... SS SE A
 
-(struct jpeg
+(struct jfif
   (frame misc-segments mcu-array))
 
 (struct frame
@@ -368,16 +368,14 @@
     (else (error "Invalid start-of-frame marker" sof))))
 
 (define (allocate-dct-matrix frame)
-  (array-unfold
+  (build-array
+   (vector (frame-mcu-height frame) (frame-mcu-width frame))
    (lambda (i j)
-     (vector-map
-      (lambda (i component)
-        (array-unfold
-         (lambda (i j)
-           (make-vector (* 8 8) 0))
-         (list (component-samp-y component) (component-samp-x component))))
-      (frame-components frame)))
-   (list (frame-mcu-height frame) (frame-mcu-width frame))))
+     (for/vector ((component (frame-components frame)))
+       (build-array
+        (list (component-samp-y component) (component-samp-x component))
+        (lambda (i j)
+          (make-vector (* 8 8) 0)))))))
 
 ;; return current dc
 (define (read-block bit-port block prev-dc-q q-table dc-table ac-table)
@@ -411,33 +409,27 @@
     dc-q))
 
 (define (read-mcu bit-port scan-components mcu)
-  (vector-for-each
-   (lambda (k scan-component)
-     (match scan-component
-       ((vector component prev-dc q-table dc-table ac-table)
-        (let ((dc (array-fold-values
-                   (lambda (block prev-dc)
-                     (read-block bit-port block
-                                 prev-dc q-table dc-table ac-table))
-                   (vector-ref mcu (component-index component))
-                   prev-dc)))
-          (vector-set! scan-component 1 dc)))))
-   scan-components))
+  (for ((scan-component scan-components))
+    (match scan-component
+      ((vector component prev-dc q-table dc-table ac-table)
+       (vector-set! scan-component 1
+                    (for/fold ((dc prev-dc))
+                        ((block (vector-ref mcu (component-index component))))
+                      (read-block bit-port block
+                                  dc q-table dc-table ac-table)))))))
 
 (define (read-dct-scan bit-port scan-components dest Ss Se Ah Al)
   (unless (and (= Ss 0) (= Se 63) (= Ah 0) (= Al 0))
     (error "progressive frame reading not yet supported"))
-  (array-for-each-value (lambda (mcu)
-                          (read-mcu bit-port scan-components mcu))
-                        dest))
+  (for ((mcu dest))
+    (read-mcu bit-port scan-components mcu)))
 
 (define (read-scan port frame params dest)
   (define (find-component id)
     (let ((components (frame-components frame)))
       (vector-ref components
-                  (or (vector-index (lambda (component)
-                                      (= (component-id component) id))
-                                    components)
+                  (or (for/or ((component components))
+                        (and (= (component-id component) id)))
                       (error "No component found with id" id)))))
   (unless (frame-dct? frame) (error "DCT frame expected" frame))
   (unless (frame-huffman-coded? frame) (error "Huffman coding expected" frame))
@@ -447,50 +439,49 @@
     (let ((scan-component-count (read-u8 port)))
       (unless (= len (+ 6 (* scan-component-count 2)))
         (error "Unexpected scan segment length" len))
-      (let* ((scan-components
-              (vector-unfold
-               (lambda (i next-component-index)
-                 (let* ((id (read-u8 port))
-                        (T (read-u8 port))
-                        (Td (arithmetic-shift T -4))
-                        (Ta (bitwise-and T #xf))
-                        (component (find-component id)))
-                   (unless (< Td 4) (error "Bad Td" Td))
-                   (unless (< Ta 4) (error "Bad Ta" Ta))
-                   (unless (<= (component-index component) next-component-index)
-                     (error "Bad component ordering in scan" component))
-                   (values
-                    (vector component
-                            0 ;; Previous DC coefficient.
-                            (let ((q (component-q-table component)))
-                              (or (vector-ref (params-q-tables params) q)
-                                  (error "Missing Q table" q)))
-                            (or (vector-ref (params-dc-tables params) Td)
-                                (error "Missing DC table" Td))
-                            (or (vector-ref (params-ac-tables params) Ta)
-                                (error "Missing AC table" Ta)))
-                    (add1 (component-index component)))))
-               scan-component-count
-               0))
-             (Ss (read-u8 port))
-             (Se (read-u8 port))
-             (A (read-u8 port))
-             (Ah (arithmetic-shift A -4))
-             (Al (bitwise-and A #xf))
-             (bit-port (make-bit-port port)))
-        (cond
-         ((frame-sequential? frame)
-          (unless (zero? Ss) (error "Bad Ss for sequential frame" Ss))
-          (unless (= Se 63) (error "Bad Se for sequential frame" Se))
-          (unless (zero? Ah) (error "Bad Ah for sequential frame" Ah))
-          (unless (zero? Al) (error "Bad Al for sequential frame" Al))
-          (read-dct-scan bit-port scan-components dest 0 63 0 0))
-         ((frame-progressive? frame)
-          (unless (<= Ss Se 63) (error "Bad Ss / Se" Ss Se))
-          (unless (< Ah 14) (error "Bad Ah" Ah))
-          (unless (< Al 14) (error "Bad Ah" Al))
-          (read-dct-scan bit-port scan-components dest Ss Se Ah Al))
-         (else (error "Unsupported frame type" frame)))))))
+      (let ((scan-components (make-vector scan-component-count)))
+        (for/fold ((next-component-index 0))
+            ((i (in-range scan-component-count)))
+          (let* ((id (read-u8 port))
+                 (T (read-u8 port))
+                 (Td (arithmetic-shift T -4))
+                 (Ta (bitwise-and T #xf))
+                 (component (find-component id)))
+            (unless (< Td 4) (error "Bad Td" Td))
+            (unless (< Ta 4) (error "Bad Ta" Ta))
+            (unless (<= (component-index component) next-component-index)
+              (error "Bad component ordering in scan" component))
+            (vector-set! scan-components i
+                         (vector
+                          component
+                          0 ;; Previous DC coefficient.
+                          (let ((q (component-q-table component)))
+                            (or (vector-ref (params-q-tables params) q)
+                                (error "Missing Q table" q)))
+                          (or (vector-ref (params-dc-tables params) Td)
+                              (error "Missing DC table" Td))
+                          (or (vector-ref (params-ac-tables params) Ta)
+                              (error "Missing AC table" Ta))))
+            (add1 (component-index component))))
+        (let* ((Ss (read-u8 port))
+               (Se (read-u8 port))
+               (A (read-u8 port))
+               (Ah (arithmetic-shift A -4))
+               (Al (bitwise-and A #xf))
+               (bit-port (make-bit-port port)))
+          (cond
+           ((frame-sequential? frame)
+            (unless (zero? Ss) (error "Bad Ss for sequential frame" Ss))
+            (unless (= Se 63) (error "Bad Se for sequential frame" Se))
+            (unless (zero? Ah) (error "Bad Ah for sequential frame" Ah))
+            (unless (zero? Al) (error "Bad Al for sequential frame" Al))
+            (read-dct-scan bit-port scan-components dest 0 63 0 0))
+           ((frame-progressive? frame)
+            (unless (<= Ss Se 63) (error "Bad Ss / Se" Ss Se))
+            (unless (< Ah 14) (error "Bad Ah" Ah))
+            (unless (< Al 14) (error "Bad Ah" Al))
+            (read-dct-scan bit-port scan-components dest Ss Se Ah Al))
+           (else (error "Unsupported frame type" frame))))))))
 
 (define (read-jpeg port #:with-body? (with-body? #t)
                    #:with-misc-sections? (with-misc-sections? #t))
