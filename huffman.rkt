@@ -71,7 +71,7 @@
          (let ((si (bytes-ref sizes n))
                (code (vector-ref codes n))
                (value (bytes-ref values n)))
-           (format #t "~a: #*~v,'0b -> #x~2,0x\n" n si code value)
+           (printf "~a: ~a ~a ~a\n" n si code value)
            (lp (add1 n))))))))
 
 (define (read-huffman-coded-value bit-port table)

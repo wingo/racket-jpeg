@@ -395,11 +395,11 @@
     ((interleaved-image width height 3 stride buffer)
      (unless (= stride (* 3 width))
        (error "implement me"))
-     (format port "P6\n~a ~a\n255\n" width height)
+     (fprintf port "P6\n~a ~a\n255\n" width height)
      (write-bytes buffer port))))
 
 (define (write-pgm port p)
   (match p
     ((plane width height samples)
-     (format port "P5\n~a ~a\n255\n" width height)
+     (fprintf port "P5\n~a ~a\n255\n" width height)
      (write-bytes samples port))))
