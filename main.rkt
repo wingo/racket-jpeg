@@ -142,5 +142,7 @@
                (lambda (port)
                  (read-jpeg port)))))
     (check-equal? j1 j2)
-    (jpeg->rgb j1)
-    #t))
+    (let ((ppm (call-with-output-bytes
+                (lambda (p) (write-ppm p (jpeg->rgb j1))))))
+      (check-true (bytes? ppm))
+      (check-true (> (bytes-length ppm) (* width height 3))))))
