@@ -368,10 +368,8 @@
     ((interleaved-image width height 4 stride argb)
      (let* ((new-stride (* width 3))
             (rgb (make-bytevector (* height new-stride) 0)))
-       (rgb->yuv
-        (interleaved-image
-         width height 3 new-stride
-         (argb-pixels->rgb-pixels argb rgb width height stride new-stride))
+       (argb-pixels->rgb-pixels argb rgb width height stride new-stride)
+       (rgb->yuv (interleaved-image width height 3 new-stride rgb)
         #:samp-x samp-x #:samp-y samp-y)))
     ((interleaved-image width height 3 stride rgb)
      (let pad ((rgb rgb)

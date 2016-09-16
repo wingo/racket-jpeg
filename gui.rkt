@@ -20,7 +20,8 @@
          jpeg/pixbufs
          jpeg)
 (provide rgb->bitmap
-         jpeg->bitmap)
+         jpeg->bitmap
+         bitmap->rgb)
 
 (define (swap-u32-byte-order pixels)
   (let ((out (bytes-copy pixels)))
@@ -29,19 +30,29 @@
         (bytevector-u32-set! out i u32 (endianness little))))
     out))
 
+(define (maybe-swap-u32-byte-order pixels)
+  (if (eq? (native-endianness) (endianness big))
+      pixels
+      (swap-u32-byte-order pixels)))
+
 (define (rgb->bitmap image)
   (match image
     ((interleaved-image width height 4 stride pixels)
      (unless (= stride (* 4 width))
        (error "implement me"))
      (let ((bitmap (make-bitmap width height))
-           (argb-pixels (if (eq? (native-endianness) (endianness big))
-                            pixels
-                            (swap-u32-byte-order pixels))))
+           (argb-pixels (maybe-swap-u32-byte-order pixels)))
        (send bitmap set-argb-pixels 0 0 width height argb-pixels)
        bitmap))
     ((interleaved-image width height 3 stride pixels)
      (rgb->bitmap (rgb->argb image)))))
+
+(define (bitmap->rgb bitmap)
+  (let* ((width (send bitmap get-width))
+         (height (send bitmap get-height))
+         (argb-pixels (make-bytes (* width height 4))))
+    (send bitmap get-argb-pixels 0 0 width height argb-pixels)
+    (interleaved-image width height 4 (* width 4) argb-pixels)))
 
 (define (jpeg->bitmap jpeg)
   (rgb->bitmap (jpeg->rgb jpeg #:argb? #f)))

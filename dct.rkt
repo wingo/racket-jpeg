@@ -153,8 +153,8 @@
          ((< x 1) 1)
          ((> x 255) 255)
          (else (inexact->exact (round x))))))
-    (vector (array-map scale *standard-luminance-q-table*)
-            (array-map scale *standard-chrominance-q-table*)
+    (vector (vector-map scale *standard-luminance-q-table*)
+            (vector-map scale *standard-chrominance-q-table*)
             #f
             #f)))
 
@@ -221,9 +221,10 @@
                          (samp-x (component-samp-x component)))
                      (build-array
                       (vector samp-y samp-x)
-                      (lambda (y x)
-                        (let* ((pos (+ (* (+ (* i samp-y) y) 8 plane-width)
-                                       (* (+ (* j samp-x) x) 8)))
-                               (q-table-index (component-q-table component))
-                               (q-table (vector-ref q-tables q-table-index)))
-                          (fdct-block samples pos plane-width q-table)))))))))))))))))
+                      (match-lambda
+                        ((vector y x)
+                         (let* ((pos (+ (* (+ (* i samp-y) y) 8 plane-width)
+                                        (* (+ (* j samp-x) x) 8)))
+                                (q-table-index (component-q-table component))
+                                (q-table (vector-ref q-tables q-table-index)))
+                           (fdct-block samples pos plane-width q-table))))))))))))))))))
