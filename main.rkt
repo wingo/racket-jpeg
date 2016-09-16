@@ -28,14 +28,7 @@
          rgb-buffer->jpeg
          read-jpeg
          write-jpeg)
-(require jpeg/jfif jpeg/exif)
-; (require jpeg/dct jpeg/pixbufs)
-;; in the meantime:
-(define yuv->rgb #f)
-(define rgb->yuv #f)
-(define jpeg->planar-image #f)
-(define planar-image->jpeg #f)
-(define make-interleaved-image #f)
+(require jpeg/jfif jpeg/exif jpeg/dct jpeg/pixbufs)
 
 (define (jpeg-dimensions jpeg)
   (let* ((jfif (if (jfif? jpeg)
@@ -94,8 +87,8 @@
 (define (rgb-buffer->jpeg buffer width height #:stride (stride (* width 3))
                           #:samp-x (samp-x 2) #:samp-y (samp-y 2)
                           #:quality (quality 85) #:argb? (argb? #f))
-  (rgb->jpeg (make-interleaved-image width height (if argb? 4 3) stride
-                                     buffer)
+  (rgb->jpeg (interleaved-image width height (if argb? 4 3) stride
+                                buffer)
              #:samp-x samp-x #:samp-y samp-y #:quality quality))
 
 (module+ test
@@ -142,11 +135,12 @@
   (check-eqv? width expected-width)
   (check-eqv? height expected-height)
   (check-equal? exif expected-exif)
-
   (let* ((j1 (read-jpeg test-file-name))
          (j2 (call-with-input-bytes
                  (call-with-output-bytes
                    (lambda (port) (write-jpeg port j1)))
                (lambda (port)
                  (read-jpeg port)))))
-    (check-equal? j1 j2)))
+    (check-equal? j1 j2)
+    (jpeg->rgb j1)
+    #t))

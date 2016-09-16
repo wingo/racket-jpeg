@@ -21,50 +21,42 @@
 ;;
 ;;; Code:
 
-(require (for-syntax math/array) (for-syntax racket)
-         math/array jpeg/jfif jpeg/pixbufs rnrs/bytevectors-6)
+(require math/array jpeg/jfif jpeg/pixbufs rnrs/bytevectors-6)
 
-;; Bah, not working for some reason
-(define-syntax (eval-at-compile-time x)
-  (syntax-case x ()
-    ((eval-at-compile-time expr)
-     (datum->syntax #'eval-at-compile-time
-                    (eval (syntax->datum #'expr))))))
+(provide jpeg->planar-image planar-image->jpeg)
 
 (define fdct-coefficients
-  (eval-at-compile-time
-   (let ((pi (* 2 (acos 0))))
-     (build-array
-      #(8 8)
-      (match-lambda
-        ((vector u v)
-         ;; FIXME: Produce literal f32vector here.
-         (for/vector ((k (in-range (* 8 8))))
-           (call-with-values (lambda ()
-                               (values (quotient k 8) (remainder k 8)))
-             (lambda (i j)
-               (let ((Cu (if (zero? u) (/ 1 (sqrt 2)) 1))
-                     (Cv (if (zero? v) (/ 1 (sqrt 2)) 1)))
-                 (* 1/4 Cu Cv
-                    (cos (/ (* (+ (* 2 i) 1) u pi) 16))
-                    (cos (/ (* (+ (* 2 j) 1) v pi) 16)))))))))))))
+  (let ((pi (* 2 (acos 0))))
+    (build-array
+     #(8 8)
+     (match-lambda
+       ((vector u v)
+        ;; FIXME: Produce literal f32vector here.
+        (for/vector ((k (in-range (* 8 8))))
+          (call-with-values (lambda ()
+                              (values (quotient k 8) (remainder k 8)))
+            (lambda (i j)
+              (let ((Cu (if (zero? u) (/ 1 (sqrt 2)) 1))
+                    (Cv (if (zero? v) (/ 1 (sqrt 2)) 1)))
+                (* 1/4 Cu Cv
+                   (cos (/ (* (+ (* 2 i) 1) u pi) 16))
+                   (cos (/ (* (+ (* 2 j) 1) v pi) 16))))))))))))
 
 (define idct-coefficients
-  (eval-at-compile-time
-   (let ((pi (* 2 (acos 0))))
-     (build-array
-      #(8 8)
-      (match-lambda
-        ((vector i j)
-         (for/vector ((k (in-range (* 8 8))))
-           (call-with-values (lambda ()
-                               (values (quotient k 8) (remainder k 8)))
-             (lambda (u v)
-               (let ((Cu (if (zero? u) (/ 1 (sqrt 2)) 1))
-                     (Cv (if (zero? v) (/ 1 (sqrt 2)) 1)))
-                 (* 1/4 Cu Cv
-                    (cos (/ (* (+ (* 2 i) 1) u pi) 16))
-                    (cos (/ (* (+ (* 2 j) 1) v pi) 16)))))))))))))
+  (let ((pi (* 2 (acos 0))))
+    (build-array
+     #(8 8)
+     (match-lambda
+       ((vector i j)
+        (for/vector ((k (in-range (* 8 8))))
+          (call-with-values (lambda ()
+                              (values (quotient k 8) (remainder k 8)))
+            (lambda (u v)
+              (let ((Cu (if (zero? u) (/ 1 (sqrt 2)) 1))
+                    (Cv (if (zero? v) (/ 1 (sqrt 2)) 1)))
+                (* 1/4 Cu Cv
+                   (cos (/ (* (+ (* 2 i) 1) u pi) 16))
+                   (cos (/ (* (+ (* 2 j) 1) v pi) 16))))))))))))
 
 (define (idct-block block plane pos stride)
   (define (idct i j)
@@ -116,14 +108,13 @@
                      (mcu-x  (* j samp-x 8))
                      (offset (+ (* mcu-y sample-width) mcu-x)))
                 (for ((block-idx (in-naturals))
-                      (block (in-array (vector-ref mcu-array))))
+                      (block (in-array (vector-ref mcu k))))
                   (let* ((block-i (quotient block-idx samp-x))
                          (block-j (remainder block-idx samp-y))
                          (offset (+ offset (* block-i 8 sample-width)
                                     (* block-j 8))))
                     (idct-block block p offset sample-width)))))
-            (plane sample-width sample-height p))
-          (frame-components frame)))))))
+            (plane sample-width sample-height p))))))))
 
 ;; Tables K.1 and K.2 from the JPEG specification.
 (define *standard-luminance-q-table*
