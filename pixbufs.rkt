@@ -38,6 +38,8 @@
          interleaved-image-component-count interleaved-image-stride
          interleaved-image-buffer
 
+         rgb->argb argb->rgb
+
          yuv->rgb rgb->yuv
 
          write-ppm write-pgm)
@@ -232,7 +234,7 @@
       (lp (add1 i)))))
 
 ;; in and out might be the same
-(define (rgb->argb in out width height in-stride out-stride)
+(define (rgb-pixels->argb-pixels in out width height in-stride out-stride)
   (let lp ((i 0))
     (when (< i height)
       (let ((in-pos (* i in-stride))
@@ -253,7 +255,7 @@
                 (lp (sub1 j)))))))
       (lp (add1 i)))))
 
-(define (argb->rgb in out width height in-stride out-stride)
+(define (argb-pixels->rgb-pixels in out width height in-stride out-stride)
   (let lp ((i 0))
     (when (< i height)
       (let ((in-pos (* i in-stride))
@@ -270,6 +272,26 @@
                 (bytevector-u8-set! out (+ out-pos 2) b)
                 (lp (add1 j)))))))
       (lp (add1 i)))))
+
+(define (argb->rgb image)
+  (match image
+    ((interleaved-image width height 4 stride argb-pixels)
+     (unless (= stride (* 4 width))
+       (error "implement me"))
+     (let ((rgb-pixels (make-bytes (* 3 width height))))
+       (argb-pixels->rgb-pixels argb-pixels rgb-pixels width height
+                                stride (* 3 width))
+       (interleaved-image width height 3 (* 3 width) rgb-pixels)))))
+
+(define (rgb->argb image)
+  (match image
+    ((interleaved-image width height 3 stride rgb-pixels)
+     (unless (= stride (* 3 width))
+       (error "implement me"))
+     (let ((argb-pixels (make-bytes (* 4 width height))))
+       (rgb-pixels->argb-pixels rgb-pixels argb-pixels width height
+                                stride (* 4 width))
+       (interleaved-image width height 4 (* 4 width) argb-pixels)))))
 
 (define (yuv->rgb yuv
                    #:argb? (argb? #f)
@@ -298,7 +320,8 @@
            (let ((buffer (make-bytevector (* stride height) 0)))
              (convert-yuv buffer width height stride y cb cr y-width)
              (when argb?
-               (rgb->argb buffer buffer width height stride stride))
+               (rgb-pixels->argb-pixels buffer buffer width height
+                                        stride stride))
              (interleaved-image width height
                                 (if argb? 4 3) stride buffer)))
           ((vector x y z w)                   ; ?
@@ -348,7 +371,7 @@
        (rgb->yuv
         (interleaved-image
          width height 3 new-stride
-         (argb->rgb argb rgb width height stride new-stride))
+         (argb-pixels->rgb-pixels argb rgb width height stride new-stride))
         #:samp-x samp-x #:samp-y samp-y)))
     ((interleaved-image width height 3 stride rgb)
      (let pad ((rgb rgb)
