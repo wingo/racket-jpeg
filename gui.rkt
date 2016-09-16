@@ -22,22 +22,30 @@
 (provide rgb->bitmap
          jpeg->bitmap)
 
+(define (swap-u32-byte-order pixels)
+  (let ((out (bytes-copy pixels)))
+    (for ((i (in-range 0 (bytes-length pixels) 4)))
+      (let ((u32 (bytevector-u32-ref pixels i (endianness big))))
+        (bytevector-u32-set! out i u32 (endianness little))))
+    out))
+
 (define (rgb->bitmap image)
   (match image
     ((interleaved-image width height 4 stride pixels)
      (unless (= stride (* 4 width))
        (error "implement me"))
-     (let ((bitmap (make-bitmap width height)))
-       (send bitmap set-argb-pixels 0 0 width height pixels)
+     (let ((bitmap (make-bitmap width height))
+           (argb-pixels (if (eq? (native-endianness) (endianness big))
+                            pixels
+                            (swap-u32-byte-order pixels))))
+       (send bitmap set-argb-pixels 0 0 width height argb-pixels)
        bitmap))
     ((interleaved-image width height 3 stride pixels)
      (rgb->bitmap (rgb->argb image)))))
 
 (define (jpeg->bitmap jpeg)
-  (rgb->bitmap (jpeg->rgb jpeg #:argb? #t)))
+  (rgb->bitmap (jpeg->rgb jpeg #:argb? #f)))
 
 (module+ test
-  (let* ((j1 (read-jpeg "./test.jpg"))
-         (rgb (jpeg->rgb j1 #:argb? #t)))
-    (rgb->bitmap rgb)
-    #t))
+  (jpeg->bitmap "./test.jpg")
+  #t)
