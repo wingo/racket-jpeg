@@ -58,5 +58,8 @@
   (rgb->bitmap (jpeg->rgb jpeg #:argb? #f)))
 
 (module+ test
-  (jpeg->bitmap "./test.jpg")
-  #t)
+  (require rackunit)
+  (let-values (((width height) (jpeg-dimensions "./test.jpg")))
+    (let ((bitmap (jpeg->bitmap "./test.jpg")))
+      (check-eqv? (send bitmap get-width) width)
+      (check-eqv? (send bitmap get-height) height))))
