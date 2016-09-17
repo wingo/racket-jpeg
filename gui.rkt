@@ -21,7 +21,8 @@
          jpeg)
 (provide rgb->bitmap
          jpeg->bitmap
-         bitmap->rgb)
+         bitmap->rgb
+         bitmap->jpeg)
 
 (define (swap-u32-byte-order pixels)
   (let ((out (bytes-copy pixels)))
@@ -56,6 +57,9 @@
 
 (define (jpeg->bitmap jpeg)
   (rgb->bitmap (jpeg->rgb jpeg #:argb? #f)))
+
+(define (bitmap->jpeg bitmap #:quality (quality 50))
+  (rgb->jpeg (bitmap->rgb bitmap) #:quality quality))
 
 (module+ test
   (require rackunit)

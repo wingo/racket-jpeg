@@ -45,16 +45,13 @@
          write-ppm write-pgm)
 
 (struct planar-image
-  (width height canvas-width canvas-height planes)
-  #:transparent)
+  (width height canvas-width canvas-height planes))
 
 (struct plane
-  (width height samples)
-  #:transparent)
+  (width height samples))
 
 (struct interleaved-image
-  (width height component-count stride buffer)
-  #:transparent)
+  (width height component-count stride buffer))
 
 (define (shrink-plane-width-by-two/centered in width height)
   (let* ((half-width (/ width 2))
