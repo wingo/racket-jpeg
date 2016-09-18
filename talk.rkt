@@ -4,22 +4,120 @@
 
 (jpeg-dimensions-and-exif jpeg)
 
-(require jpeg/gui)
-(define pic (jpeg->bitmap jpeg))
-pic
 
-(define rgb (bitmap->rgb pic))
-(define re-encoded (rgb->jpeg rgb))
-(define pic2 (jpeg->bitmap re-encoded))
-pic2
 
-(jpeg->bitmap (bitmap->jpeg pic #:quality 5))
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;(require jpeg/gui)
+;(define pic (jpeg->bitmap jpeg))
+;pic
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;(define rgb (bitmap->rgb pic))
+;(define re-encoded (rgb->jpeg rgb))
+;(define pic2 (jpeg->bitmap re-encoded))
+;pic2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;(jpeg->bitmap (bitmap->jpeg pic #:quality 5))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#;
 (require jpeg/dct jpeg/jfif jpeg/pixbufs rnrs/bytevectors-6)
-(define yuv (jpeg->planar-image jpeg))
-(define (extract-plane yuv k)
+#;(define yuv (jpeg->planar-image jpeg))
+#;(define (extract-plane yuv k)
   (vector-ref (planar-image-planes yuv) k))
-(define (plane->rgb p #:zero (zero #(0 0 0)) #:one (one #(255 255 255)))
+#;(define (plane->rgb p #:zero (zero #(0 0 0)) #:one (one #(255 255 255)))
   (match (vector zero one)
     ((vector (vector r0 g0 b0) (vector r1 b1 g1))
      (define (scale u8 v0 v1)
@@ -41,9 +139,9 @@ pic2
             (bytevector-u32-native-set! pixels offset
                                         (color (bytevector-u8-ref samples i))))
           (interleaved-image width height 4 (* width 4) pixels)))))))
-(define y (plane->rgb (extract-plane yuv 0)))
-(define u (plane->rgb (extract-plane yuv 1)))
-(define v (plane->rgb (extract-plane yuv 2)))
+#;(define y (plane->rgb (extract-plane yuv 0)))
+#;(define u (plane->rgb (extract-plane yuv 1)))
+#;(define v (plane->rgb (extract-plane yuv 2)))
 ;(rgb->bitmap y)
 ;(rgb->bitmap u)
 ;(rgb->bitmap v)
